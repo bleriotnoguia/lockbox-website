@@ -1,0 +1,5 @@
+# Supabase local/project configuration
+# Keep waitlist function public: this endpoint is used by anonymous visitors.
+
+[functions.submit-waitlist]
+verify_jwt = false

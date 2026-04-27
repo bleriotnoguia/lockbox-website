@@ -19,3 +19,5 @@ Deploy `supabase/functions/submit-waitlist` and set secrets:
 - `RESEND_FROM_EMAIL` (optional, for confirmation emails)
 
 If email secrets are not configured, form submission still works and only skips sending mail.
+
+`supabase/config.toml` sets `submit-waitlist` as a public function (`verify_jwt = false`), which is required for anonymous form submissions.
