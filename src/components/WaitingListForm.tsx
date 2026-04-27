@@ -176,6 +176,16 @@ export default function WaitingListForm() {
             Join the waiting list, get early access, and tell us what you need most.
             Your feedback directly influences the roadmap.
           </p>
+          <p className="text-sm text-slate-500 mt-4">
+            Prefer direct contact? Email{' '}
+            <a
+              href="mailto:contact@bleriotnoguia.com"
+              className="text-cyan-400 hover:text-cyan-300 underline decoration-cyan-500/40 underline-offset-2"
+            >
+              contact@bleriotnoguia.com
+            </a>{' '}
+            or use the form below.
+          </p>
         </div>
 
         <form
