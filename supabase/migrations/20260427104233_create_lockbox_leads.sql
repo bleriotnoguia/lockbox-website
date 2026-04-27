@@ -37,6 +37,8 @@ CREATE TABLE IF NOT EXISTS leads (
 
 ALTER TABLE leads ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Anyone can submit a lead" ON leads;
+
 CREATE POLICY "Anyone can submit a lead"
   ON leads
   FOR INSERT

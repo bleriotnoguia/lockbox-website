@@ -1,16 +1,84 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, Loader2, Send } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
-type FormState = 'idle' | 'loading' | 'success' | 'error';
+type FormState = 'idle' | 'loading' | 'success' | 'already_subscribed' | 'error';
+const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY as string | undefined;
+
+type WaitlistResponse = {
+  status: 'subscribed' | 'already_subscribed';
+  error?: string;
+};
+
+declare global {
+  interface Window {
+    turnstile?: {
+      render: (
+        container: HTMLElement,
+        options: {
+          sitekey: string;
+          callback: (token: string) => void;
+          'expired-callback'?: () => void;
+          'error-callback'?: () => void;
+        }
+      ) => string;
+      remove: (id: string) => void;
+    };
+  }
+}
 
 export default function WaitingListForm() {
   const [email, setEmail] = useState('');
   const [waitingList, setWaitingList] = useState(true);
   const [newsletter, setNewsletter] = useState(false);
   const [featureRequest, setFeatureRequest] = useState('');
+  const [website, setWebsite] = useState('');
+  const [turnstileToken, setTurnstileToken] = useState('');
   const [state, setState] = useState<FormState>('idle');
   const [errorMsg, setErrorMsg] = useState('');
+  const [isTurnstileReady, setIsTurnstileReady] = useState(!turnstileSiteKey);
+  const [formReadyAt] = useState(() => Date.now());
+  const turnstileRef = useRef<HTMLDivElement | null>(null);
+  const widgetIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!turnstileSiteKey || !turnstileRef.current) {
+      return;
+    }
+
+    const onReady = () => {
+      if (!turnstileRef.current || !window.turnstile) return;
+      if (widgetIdRef.current) return;
+      widgetIdRef.current = window.turnstile.render(turnstileRef.current, {
+        sitekey: turnstileSiteKey,
+        callback: (token: string) => setTurnstileToken(token),
+        'expired-callback': () => setTurnstileToken(''),
+        'error-callback': () => setTurnstileToken(''),
+      });
+      setIsTurnstileReady(true);
+    };
+
+    const existingScript = document.querySelector<HTMLScriptElement>('script[data-turnstile="true"]');
+    if (existingScript) {
+      if (window.turnstile) onReady();
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+    script.async = true;
+    script.defer = true;
+    script.dataset.turnstile = 'true';
+    script.onload = onReady;
+    document.head.appendChild(script);
+
+    return () => {
+      if (widgetIdRef.current && window.turnstile) {
+        window.turnstile.remove(widgetIdRef.current);
+        widgetIdRef.current = null;
+      }
+    };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -24,40 +92,68 @@ export default function WaitingListForm() {
       setErrorMsg('Please select at least one option.');
       return;
     }
+    if (website.trim().length > 0) {
+      setState('success');
+      return;
+    }
+    if (Date.now() - formReadyAt < 2000) {
+      setErrorMsg('Please wait a second before submitting.');
+      return;
+    }
+    if (turnstileSiteKey && !turnstileToken) {
+      setErrorMsg('Please complete bot verification.');
+      return;
+    }
     setErrorMsg('');
     setState('loading');
 
-    const { error } = await supabase.from('leads').upsert(
-      {
+    const { data, error } = await supabase.functions.invoke<WaitlistResponse>('submit-waitlist', {
+      body: {
         email: email.trim().toLowerCase(),
         waiting_list_opt_in: waitingList,
         newsletter_opt_in: newsletter,
         feature_request: featureRequest.trim(),
         source: 'landing_v3',
         locale: 'en',
+        turnstileToken,
       },
-      { onConflict: 'email' }
-    );
+    });
 
-    if (error) {
+    if (error || !data) {
       setState('error');
-      setErrorMsg('Something went wrong. Please try again.');
+      setErrorMsg('Unable to submit right now. Please try again in a moment.');
+      return;
+    }
+
+    if (data.error) {
+      setState('error');
+      setErrorMsg(data.error);
+      return;
+    }
+
+    if (data.status === 'already_subscribed') {
+      setState('already_subscribed');
     } else {
       setState('success');
     }
   };
 
-  if (state === 'success') {
+  if (state === 'success' || state === 'already_subscribed') {
+    const alreadySubscribed = state === 'already_subscribed';
+
     return (
       <section id="waiting-list" className="py-24 bg-[#060b14]">
         <div className="max-w-lg mx-auto px-6 text-center">
           <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mx-auto mb-6">
             <CheckCircle2 className="w-8 h-8 text-emerald-400" />
           </div>
-          <h3 className="text-2xl font-bold text-white mb-3">You're on the list!</h3>
+          <h3 className="text-2xl font-bold text-white mb-3">
+            {alreadySubscribed ? 'You are already on the list.' : "You're on the list!"}
+          </h3>
           <p className="text-slate-400 leading-relaxed">
-            Thanks for joining. You'll be among the first to hear about Lockbox V3 and Pro.
-            We'll share the roadmap, top-requested features, and early access details directly to your inbox.
+            {alreadySubscribed
+              ? 'This email is already registered. We will still send you roadmap updates and early access details.'
+              : "Thanks for joining. You'll be among the first to hear about Lockbox V3 and Pro. We'll share the roadmap, top-requested features, and early access details directly to your inbox."}
           </p>
         </div>
       </section>
@@ -98,6 +194,18 @@ export default function WaitingListForm() {
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
               className="w-full px-4 py-3 rounded-xl bg-white/[0.04] border border-white/[0.08] focus:border-cyan-500/50 focus:outline-none focus:ring-1 focus:ring-cyan-500/30 text-white placeholder:text-slate-600 text-sm transition-colors"
+            />
+          </div>
+
+          <div className="hidden" aria-hidden="true">
+            <label htmlFor="website">Website</label>
+            <input
+              id="website"
+              name="website"
+              tabIndex={-1}
+              autoComplete="off"
+              value={website}
+              onChange={(e) => setWebsite(e.target.value)}
             />
           </div>
 
@@ -181,9 +289,18 @@ export default function WaitingListForm() {
             <p className="text-red-400 text-sm mb-4">{errorMsg}</p>
           )}
 
+          {turnstileSiteKey && (
+            <div className="mb-6">
+              <div ref={turnstileRef} />
+              {!isTurnstileReady && (
+                <p className="text-xs text-slate-500 mt-2">Loading bot protection...</p>
+              )}
+            </div>
+          )}
+
           <button
             type="submit"
-            disabled={state === 'loading'}
+            disabled={state === 'loading' || (Boolean(turnstileSiteKey) && !turnstileToken)}
             className="w-full flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold text-sm transition-all duration-200 shadow-lg shadow-cyan-500/20 hover:shadow-cyan-400/30 hover:-translate-y-0.5"
           >
             {state === 'loading' ? (
