@@ -15,6 +15,11 @@ export default function WaitingListForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email) return;
+    if (!supabase) {
+      setState('error');
+      setErrorMsg('Form is temporarily unavailable. Please try again in a moment.');
+      return;
+    }
     if (!waitingList && !newsletter) {
       setErrorMsg('Please select at least one option.');
       return;

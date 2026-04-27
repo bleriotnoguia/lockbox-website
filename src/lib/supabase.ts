@@ -3,7 +3,17 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+const hasSupabaseEnv = Boolean(supabaseUrl) && Boolean(supabaseAnonKey);
+
+if (!hasSupabaseEnv) {
+  console.error(
+    '[supabase] Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY. Waiting list submission is disabled.'
+  );
+}
+
+export const supabase = hasSupabaseEnv
+  ? createClient(supabaseUrl, supabaseAnonKey)
+  : null;
 
 export interface Lead {
   email: string;
